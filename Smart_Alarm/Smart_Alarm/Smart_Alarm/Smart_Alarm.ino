@@ -1,6 +1,6 @@
 #include <LiquidCrystal.h>
 #include <SoftwareSerial.h>
-#include <Password.h> //Incluimos la libreria Password
+//#include <Password.h> //Incluimos la libreria Password
 #include <Keypad.h> //Incluimos la libreria Keypad
 #include <EEPROM.h>
 
@@ -10,6 +10,7 @@ LiquidCrystal lcd(A0, A1, A2, A3, A4, A5); // Inicializamos el lcd
 
 
 //Password password = Password( "1234" );
+
 char* password = "1234"; // Establecemos el password
 char* master = "123456";
 int position = 0;  
@@ -23,12 +24,13 @@ byte intentos = 0;
 char key; 
 boolean passOK = false; 
 boolean passWrong = false; 
+
 int tamanyo_password = 4;
 
 
 /****Inicializamos el teclado*****/
 const byte ROWS = 4; // Cuatro Filas
-const byte COLS = 3; // Cuatro Columnas
+const byte COLS = 3; // Tres Columnas
 
 char keys[ROWS][COLS] = {
   {'1','2','3'},
@@ -38,7 +40,7 @@ char keys[ROWS][COLS] = {
 };
 
 byte rowPins[ROWS] = { 12,11,6,5 };
-byte colPins[COLS] = { 4,3,9};
+byte colPins[COLS] = { 4,3,2};
 
 // Creamos el Keypad
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
@@ -56,14 +58,15 @@ void setup(){
      
       
       /*--------------encendemos el módulo GPRS ---------------------------*/
-      delay (5000);  //Nos damos un tiempo para encender el GPRS y la alimentación de la tarjeta
+    
       SIM900.begin(19200);  //Configura velocidad del puerto serie para el SIM900
       Serial.begin(19200);  //Configura velocidad del puerto serie del Arduino
-      Serial.println("OK");
+      Serial.println("Módulo encendido");
       delay (1000);
       SIM900.println("AT + CPIN = \"1386\"");  //Comando AT para introducir el PIN de la tarjeta
       delay(25000);  //Tiempo para que encuentre una RED
-      lcd.clear();
+      Serial.println("PIN OK");
+     
       
         
   }
@@ -89,9 +92,9 @@ while(estado_alarma == 0)
 
       digitalWrite(buzzer, LOW);
       lcd.setCursor(0, 0);
-      lcd.print("Alarm off:");
+      lcd.print("Alarm disarmed:");
       lcd.setCursor(0, 1);
-      lcd.print("<<Enter key>>");
+      lcd.print("Enter key:...");
     
     eventoTeclado();
     if(passOK)
@@ -105,6 +108,7 @@ while(estado_alarma == 0)
             estado_alarma = 5;
             Serial.print("5");
             passWrong = false;
+            lcd.clear();
         }
 }
 
@@ -121,7 +125,7 @@ while(estado_alarma == 1)
 {
    
     lcd.setCursor(0, 0);
-    lcd.print("Alarm ON, 20 sc ");
+    lcd.print("Alarm ON,20sc ");
     lcd.setCursor(0, 1);
     lcd.print("to activate ");
     retardo();
@@ -135,21 +139,36 @@ while(estado_alarma == 1)
 /*
  * Estado 2 = el sistema esta activo y comprueba si las salida del sensopir esta en HIGH 
  * se indica por pantalla que la salida esta activa y es necesario pulsar la contraseña para desactivarla
- * se llegara a captar un intruso pasamos al estado 3
+ * si llegara a captar un intruso pasamos al estado 3
 */
 
 while(estado_alarma == 2)
 {
     
     lcd.setCursor(0, 0);
-    lcd.print("System activated ");
+    lcd.print("<<System armed>> ");
     lcd.setCursor(0, 1);
-    lcd.print("press key: OFF");
+    lcd.print("press key:OFF..");
+     eventoTeclado();
+//Si el password es correcto pasamos al estado 0 si es incorrecto al estado 6  
+if(passOK){
+  estado_alarma = 0;
+  Serial.print("0");
+  passOK = false;
+  digitalWrite(buzzer, LOW);
+  Serial.print("alarma desconectada");
+}else if(passWrong)
+{
+    estado_alarma = 6;
+    Serial.print("6");
+    passWrong = false;
+}
     if(digitalRead (sensorpir) == HIGH)
       {
       estado_alarma = 3;
       Serial.print("3");
       delay(1000);
+      lcd.clear();
       }
 }
 
@@ -162,42 +181,40 @@ while(estado_alarma == 2)
 */
 while(estado_alarma == 3)
 {
+
 tiempo = millis() + 20000;
+
 do
 {
   //digitalWrite(leds, HIGH);
-  lcd.setCursor(0, 0);
-  lcd.print("Desactivate in ");
-  lcd.setCursor(0, 1);
-  lcd.print("20 seconds ");
-  //Activamos el retardo sonoro
+
   digitalWrite(buzzer, HIGH);  
   delay(400);            
   digitalWrite(buzzer, LOW);  
-  delay(100);    
+  delay(100); 
+  lcd.setCursor(0, 0);
+  lcd.print("Disarmet");
+  lcd.setCursor(0, 1);
+  lcd.print("in 20s");
+     
   eventoTeclado();
-  //Si el password es correcto detenemos el bucle
+  Serial.println(keypad.getKey());
   if(passOK)
     {
-        break;
+    estado_alarma= 0;
+    Serial.print("estoy en el estado 0, alarma apagada");
+    passOK = false;
+     break;
+     
     }
 }while(tiempo > millis());
 
-  
-  if(passOK){
-    estado_alarma= 0;
-    Serial.print("0");
-    passOK = false;
-    
-  }else if(passWrong){
-    estado_alarma = 6;
-    Serial.print("6");
-    passWrong = false;
-    
-  }else if (estado_alarma!= 0){
- 
+
+  if (estado_alarma!= 0){
   estado_alarma = 4;
+  mensaje_sms();
   Serial.print("4");
+  lcd.clear();
   }
 }
 
@@ -210,26 +227,28 @@ do
  
 
 while(estado_alarma == 4){
-
-  //digitalWrite(leds, HIGH);
+  
   digitalWrite(buzzer, HIGH);
- // digitalWrite(altavoz, LOW);
-  mensaje_sms();
+ 
+
   lcd.setCursor(0, 0);
-  lcd.print("<<ALERT>>");
+  lcd.print(" <<  ALERTA >>  ");
   lcd.setCursor(0, 1);
-  lcd.print(" INTRUDER ");
-  eventoTeclado();
-//Si el password es correcto pasamos al estado 0 si es incorrecto al estado 6  
+  lcd.print("*** Intruso  ***");
+  eventoTeclado(); 
 if(passOK){
   estado_alarma = 0;
   Serial.print("0");
   passOK = false;
+  digitalWrite(buzzer, LOW);
+  
+  
 }else if(passWrong)
 {
     estado_alarma = 6;
     Serial.print("6");
     passWrong = false;
+    llamar();
 }
 }
 
@@ -298,11 +317,11 @@ passOK= false;
  * Emite un pitido de 20 segundo de retardo
  */
 void retardo(){
-  
 
    tiempo = millis() + 20000;
     do
       {
+        
         digitalWrite(buzzer, HIGH);  
         delay(400);            
         digitalWrite(buzzer, LOW);  
@@ -310,18 +329,20 @@ void retardo(){
        }while(tiempo > millis());
  
 }
- 
-/*   
- *    EN CASO DE QUE QUERAMOS LLAMAR EN LUGAR DE ENVIAR SMS
+   
+  
 void llamar()
    {
-      Serial.println("Realizando llamada...");
-      SIM900.println("ATD606747597;");  //Comando AT para realizar una llamada
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Realizando llamada...");
+      Serial.println("Llamando...");
+      SIM900.println("ATD699684727;");  //Comando AT para realizar una llamada
       delay(30000);  // Espera 30 segundos mientras realiza la llamada
       SIM900.println("ATH");  // Cuelga la llamada
       delay(1000);
       Serial.println("Llamada finalizada");
-   }*/
+   }
 
 
 
@@ -332,12 +353,15 @@ void llamar()
 
 void mensaje_sms()
   {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Enviando SMS...");
       Serial.println("Enviando SMS...");
       SIM900.print("AT+CMGF=1\r");  //Configura el modo texto para enviar o recibir mensajes
       delay(1000);
-      SIM900.println("AT+CMGS=\"699787684\"");  //Numero al que vamos a enviar el mensaje
+      SIM900.println("AT + CMGS=\"699684727\"");  //Numero al que vamos a enviar el mensaje
       delay(1000);
-      SIM900.println("ALARMA HAY INTRUSOS EN SU HOGAR");// Texto del SMS
+      SIM900.println("ALARMA, HAY INTRUSOS EN SU HOGAR");  // Texto del SMS
       delay(100);
       SIM900.println((char)26); //Comando de finalización ^Z
       delay(100);
@@ -353,15 +377,13 @@ void mensaje_sms()
 
 void eventoTeclado(){
 
-  
-  key = keypad.getKey();
+key = keypad.getKey();
     if (key == '*' || key == '#')
     {
-      
       position = 0;
       num_click = 0;
       Serial.print("reiniciado");
-      delay(700);
+      delay(100);
     }
     // Si es correcta la contraseña se incrementa
    if (key == password[position]){
@@ -388,7 +410,7 @@ if (num_click == 4)
         position = 0;
     }else{
      passwordIncorrecto();
-       
+       intentos++;
        num_click = 0;
        position = 0;
     }
@@ -401,21 +423,17 @@ if (num_click == 4)
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("pass bloqueado ");
-      lcd.setCursor(0, 1);
-      lcd.print("Enter master code ");
-      //digitalWrite(altavoz, HIGH);
-      delay(2000);
   }
-   
-}
 
+  
+}
 
 
 
 
 void claveMaster()
 {
-key = keypad.getKey();
+ key = keypad.getKey();
 if (key == '*' || key == '#')
 {
 position = 0;
@@ -460,6 +478,8 @@ else
 }
 }
 
+
+
 /*
  * Emite una señal sonora indicando la conexion de la alarma e imprime un mensaje por el lcd
  */
@@ -470,11 +490,6 @@ void passwordCorrecto(){
         lcd.print("Correct key ");
         delay(1000);
         lcd.clear();
-            digitalWrite(buzzer, HIGH);  
-            delay(120);            
-            digitalWrite(buzzer, LOW);  
-            delay(70);      
-           
      
   }
 
@@ -488,13 +503,8 @@ void passwordIncorrecto(){
     lcd.print("Error Password ");
     delay(1000);
     lcd.clear();
-    digitalWrite(buzzer, HIGH);  
-    delay(300);            
-    digitalWrite(buzzer, LOW);  
-    delay(100);  
-        
- 
-  
+
+         
   }  
   
  
